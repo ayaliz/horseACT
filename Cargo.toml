@@ -1,0 +1,24 @@
+[package]
+name = "horseACT"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+name = "horseACT"
+crate-type = ["cdylib"]
+
+[dependencies]
+hachimi_plugin_sdk = { git = "https://github.com/Hachimi-Hachimi/hachimi_plugin_sdk_rs.git"}
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+chrono = { version = "0.4", features = ["clock"] }
+
+[features]
+default = ["il2cpp_2020"]
+il2cpp = ["hachimi_plugin_sdk/il2cpp"]
+il2cpp_2020 = ["hachimi_plugin_sdk/il2cpp_2020"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
