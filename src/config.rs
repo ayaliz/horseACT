@@ -18,10 +18,11 @@ static FIELD_BLACKLIST: OnceLock<Vec<String>> = OnceLock::new();
 fn default_field_blacklist() -> Vec<String> {
     vec![
         "_ownerViewerId".to_string(),
+		"_viewerId".to_string(),
 		"owner_viewer_id".to_string(),
         "viewer_id".to_string(),
-        "SimData".to_string(),
-        "SimReader".to_string(),
+        "<SimData>k__BackingField".to_string(),
+        "<SimReader>k__BackingField".to_string(),
         "CreateTime".to_string(),
 		"succession_history_array".to_string(),
     ]

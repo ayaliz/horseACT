@@ -5,7 +5,22 @@ use crate::config::save_root;
 use crate::log;
 use crate::reflection::CAPTURED_ENUMS;
 
-pub fn save_race_info(race_info: Value) {
+pub fn save_race_info(mut race_info: Value) {
+    
+    if let Some(sim_data) = race_info.get("<SimDataBase64>k__BackingField") {
+        if sim_data.is_null() {
+            log!("[RaceInfo] Skipped saving: <SimDataBase64>k__BackingField is null.");
+            return;
+        }
+    }
+
+    if let Value::Object(ref mut map) = race_info {
+        map.insert(
+            "horseACT_version".to_string(), 
+            Value::String(env!("CARGO_PKG_VERSION").to_string())
+        );
+    }
+
     let now = chrono::Local::now();
     let date_str = now.format("%Y%m%d").to_string();
     
@@ -101,8 +116,8 @@ pub fn save_static_data(filename: &str, data: Value) {
     if let Ok(json_str) = serde_json::to_string_pretty(&data) {
         if let Ok(mut f) = File::create(&path) {
             let _ = write!(f, "{}", json_str);
-            log!("[{}] Saved to: {}", filename, path.display());
         }
+            log!("[{}] Saved to: {}", filename, path.display());
     }
 }
 
