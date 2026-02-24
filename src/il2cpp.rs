@@ -54,6 +54,8 @@ pub type FnClassGetImage = unsafe extern "C" fn(*mut RawIl2CppClass) -> *mut Raw
 pub type FnClassGetNestedTypes = unsafe extern "C" fn(*mut RawIl2CppClass, *mut *mut c_void) -> *mut RawIl2CppClass;
 pub type FnRuntimeClassInit = unsafe extern "C" fn(*mut RawIl2CppClass);
 pub type FnClassIsGeneric = unsafe extern "C" fn(*mut RawIl2CppClass) -> bool;
+pub type FnRuntimeInvoke = unsafe extern "C" fn(*const RawMethodInfo, *mut c_void, *mut *mut c_void, *mut *mut c_void) -> *mut RawIl2CppObject;
+pub type FnMethodGetFlags = unsafe extern "C" fn(*const RawMethodInfo, *mut u32) -> u32;
 
 // Global Function Pointers
 pub static mut FN_CLASS_GET_FIELDS: Option<FnClassGetFields> = None;
@@ -92,6 +94,8 @@ pub static mut FN_CLASS_GET_NESTED_TYPES: Option<FnClassGetNestedTypes> = None;
 pub static mut FN_RUNTIME_CLASS_INIT: Option<FnRuntimeClassInit> = None;
 pub static mut FN_CLASS_IS_GENERIC: Option<FnClassIsGeneric> = None;
 pub static mut FN_FIELD_GET_VALUE_OBJECT: Option<FnFieldGetValueObject> = None;
+pub static mut FN_RUNTIME_INVOKE: Option<FnRuntimeInvoke> = None;
+pub static mut FN_METHOD_GET_FLAGS: Option<FnMethodGetFlags> = None;
 
 pub unsafe fn init_il2cpp_methods(api: &HachimiApi) -> bool {
     let il2cpp = api.il2cpp();
@@ -142,6 +146,8 @@ pub unsafe fn init_il2cpp_methods(api: &HachimiApi) -> bool {
     FN_CLASS_GET_NESTED_TYPES = resolve_func!(c"il2cpp_class_get_nested_types");
     FN_RUNTIME_CLASS_INIT = resolve_func!(c"il2cpp_runtime_class_init");
     FN_CLASS_IS_GENERIC = resolve_func!(c"il2cpp_class_is_generic");
+    FN_RUNTIME_INVOKE = resolve_func!(c"il2cpp_runtime_invoke");
+    FN_METHOD_GET_FLAGS = resolve_func!(c"il2cpp_method_get_flags");
 
     matches!(FN_CLASS_GET_FIELDS, Some(_))
         && matches!(FN_CLASS_GET_METHODS, Some(_))

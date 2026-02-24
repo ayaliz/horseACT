@@ -14,7 +14,7 @@ use hachimi_plugin_sdk::{
 
 use crate::config::init_paths;
 use crate::il2cpp::{init_il2cpp_methods, RawIl2CppImage, FN_CLASS_FROM_NAME, FN_CLASS_GET_METHOD_FROM_NAME};
-use crate::hooks::{race_info_hook, veteran_hook, ORIG_GET_RACE_TRACK_ID, ORIG_VETERAN_APPLY};
+use crate::hooks::{race_info_hook, veteran_hook, race_param_define_hook, ORIG_GET_RACE_TRACK_ID, ORIG_VETERAN_APPLY, ORIG_RACE_PARAM_DEFINE_HOOK};
 use crate::reflection::find_methods_in_assembly_by_param;
 
 #[hachimi_plugin]
@@ -71,6 +71,41 @@ pub fn main(api: HachimiApi) -> InitResult {
             }
         } else {
             log!("Failed to find RaceInfo class");
+        }
+
+        let race_param_define_class = FN_CLASS_FROM_NAME.unwrap()(
+            target_image as *mut RawIl2CppImage,
+            c"Gallop".as_ptr(),
+            c"RaceParamDefine".as_ptr(),
+        );
+
+        if !race_param_define_class.is_null() {
+            let possible_names = [c".ctor", c"Initialize", c"Awake", c"Start"];
+            let mut hooked = false;
+
+            for name in possible_names.iter() {
+                let method = FN_CLASS_GET_METHOD_FROM_NAME.unwrap()(
+                    race_param_define_class,
+                    name.as_ptr(),
+                    0, // 0 params
+                );
+
+                if !method.is_null() {
+                    let fn_ptr = *(method as *const usize);
+                    if let Some(orig) = interceptor.hook(fn_ptr, race_param_define_hook as usize) {
+                        ORIG_RACE_PARAM_DEFINE_HOOK = orig;
+                        log!("Hooked: Gallop.RaceParamDefine.{}", name.to_string_lossy());
+                        hooked = true;
+                        break;
+                    }
+                }
+            }
+
+            if !hooked {
+                log!("Failed to find suitable zero-param instance method for RaceParamDefine to hook.");
+            }
+        } else {
+            log!("Failed to find RaceParamDefine class for instance hooking");
         }
     }
 

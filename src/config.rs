@@ -12,6 +12,7 @@ static SAVE_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static HACHIMI_DIR: OnceLock<PathBuf> = OnceLock::new();
 static ENABLE_LOGGING: OnceLock<bool> = OnceLock::new();
 static DUMP_STATIC_VARIABLE_DEFINE: OnceLock<bool> = OnceLock::new();
+static DUMP_RACE_PARAM_DEFINE: OnceLock<bool> = OnceLock::new();
 static DUMP_ENUMS: OnceLock<bool> = OnceLock::new();
 static FIELD_BLACKLIST: OnceLock<Vec<String>> = OnceLock::new();
 
@@ -36,6 +37,8 @@ struct Config {
     enable_logging: bool,
     #[serde(rename = "dumpStaticVariableDefine", default)]
     dump_static_variable_define: bool,
+    #[serde(rename = "dumpRaceParamDefine", default)]
+    dump_race_param_define: bool,
     #[serde(rename = "dumpEnums", default)]
     dump_enums: bool,
     #[serde(rename = "fieldBlacklist", default = "default_field_blacklist")]
@@ -48,6 +51,7 @@ impl Default for Config {
             output_path: Some("%USERPROFILE%\\Documents".to_string()),
             enable_logging: false,
             dump_static_variable_define: false,
+            dump_race_param_define: false,
             dump_enums: false,
             field_blacklist: default_field_blacklist(),
         }
@@ -60,6 +64,10 @@ pub fn save_root() -> &'static PathBuf {
 
 pub fn dump_static_variable_define() -> bool {
     *DUMP_STATIC_VARIABLE_DEFINE.get().unwrap_or(&false)
+}
+
+pub fn dump_race_param_define() -> bool {
+    *DUMP_RACE_PARAM_DEFINE.get().unwrap_or(&false)
 }
 
 pub fn dump_enums() -> bool {
@@ -145,6 +153,7 @@ pub fn init_paths() -> Result<(), String> {
     SAVE_ROOT.set(saved).map_err(|_| "SAVE_ROOT was already initialized".to_string())?;
     let _ = ENABLE_LOGGING.set(cfg.enable_logging);
     let _ = DUMP_STATIC_VARIABLE_DEFINE.set(cfg.dump_static_variable_define);
+    let _ = DUMP_RACE_PARAM_DEFINE.set(cfg.dump_race_param_define);
     let _ = DUMP_ENUMS.set(cfg.dump_enums);
     let _ = FIELD_BLACKLIST.set(cfg.field_blacklist);
     Ok(())

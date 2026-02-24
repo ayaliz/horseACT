@@ -4,13 +4,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::mem::transmute;
 
 use crate::il2cpp::*;
-use crate::config::{dump_static_variable_define, dump_enums};
+use crate::config::{dump_static_variable_define, dump_race_param_define, dump_enums};
 use crate::reflection::{convert_object_to_value, dump_class_recursive};
 use crate::persistence::{save_race_info, save_enums as persist_enums, save_static_data, save_veteran_data};
 use crate::log;
 
 pub static mut ORIG_GET_RACE_TRACK_ID: usize = 0;
 pub static mut ORIG_VETERAN_APPLY: usize = 0;
+pub static mut ORIG_RACE_PARAM_DEFINE_HOOK: usize = 0;
+pub static mut RACE_PARAM_DEFINE_PTR: usize = 0;
+
 static LAST_DUMPED_PTR: AtomicUsize = AtomicUsize::new(0);
 static mut LAST_SIM_DATA_PTR: usize = 0;
 static mut SIM_DATA_OFFSET: i32 = -1;
@@ -25,24 +28,19 @@ pub unsafe extern "C" fn race_info_hook(
     let mut current_sim_ptr: usize = 0;
     let mut should_dump = false;
 
-    // Check if we can do a fast uniqueness check using SimData
     if unsafe { SIM_DATA_OFFSET } != -1 {
-        // We have the offset, check the SimData pointer
         let val_addr = (current_addr as isize + unsafe { SIM_DATA_OFFSET } as isize) as *const usize;
         current_sim_ptr = unsafe { *val_addr };
 
-        // If SimData is null, we definitely don't want to save (empty race data)
         if current_sim_ptr != 0 {
             // It is a new race if:
-            // 1. The object address changed (standard case)
-            // 2. The object address is reused, BUT the SimData pointer changed (fast restart/grind case)
+            // 1. The object address changed
+            // 2. The object address is reused, BUT the SimData pointer changed (apparently this is a thing that can happen)
             if current_addr != last_addr || current_sim_ptr != unsafe { LAST_SIM_DATA_PTR } {
                 should_dump = true;
             }
         }
     } else {
-        // Fallback: We haven't found the offset yet. Rely on address check.
-        // This will only happen on the very first race or if offset lookup failed.
         if !this.is_null() && current_addr != last_addr {
             should_dump = true;
         }
@@ -125,6 +123,37 @@ pub unsafe extern "C" fn race_info_hook(
                                 }
                             }
 
+                            if dump_race_param_define() {
+                                if unsafe { RACE_PARAM_DEFINE_PTR } != 0 {
+                                    log!("[RaceParamDefine] Dumping captured instance from race_info_hook");
+                                    let mut p_visited = HashSet::new();
+                                    let ptr = unsafe { RACE_PARAM_DEFINE_PTR as *mut RawIl2CppObject };
+                                    let val = convert_object_to_value(ptr, 0, &mut p_visited);
+                                    save_static_data("RaceParamDefine_Instance", val);
+                                }
+
+                                let image = FN_CLASS_GET_IMAGE.unwrap()(klass);
+                                if !image.is_null() {
+                                    let outer_ns = CString::new("Gallop").unwrap();
+                                    let outer_name = CString::new("RaceParamDefine").unwrap();
+
+                                    let outer_class = FN_CLASS_FROM_NAME.unwrap()(
+                                        image,
+                                        outer_ns.as_ptr(),
+                                        outer_name.as_ptr()
+                                    );
+
+                                    if !outer_class.is_null() {
+                                        log!("[RaceInfo] Dumping full RaceParamDefine hierarchy...");
+                                        let all_statics = dump_class_recursive(outer_class, 0);
+                                        save_static_data("RaceParamDefine", all_statics);
+
+                                    } else {
+                                        log!("[Warning] Could not find Gallop.RaceParamDefine");
+                                    }
+                                }
+                            }
+
                             if dump_enums() {
                                 persist_enums();
                             }
@@ -143,6 +172,7 @@ pub unsafe extern "C" fn race_info_hook(
         }
     }
 
+
     if ORIG_GET_RACE_TRACK_ID != 0 {
         let orig: extern "C" fn(*mut RawIl2CppObject, *const RawMethodInfo) -> i32 =
             transmute(ORIG_GET_RACE_TRACK_ID);
@@ -150,6 +180,58 @@ pub unsafe extern "C" fn race_info_hook(
     }
 
     0
+}
+
+pub unsafe extern "C" fn race_param_define_hook(
+    this: *mut RawIl2CppObject,
+    method: *const RawMethodInfo,
+) {
+    if ORIG_RACE_PARAM_DEFINE_HOOK != 0 {
+        let orig: extern "C" fn(*mut RawIl2CppObject, *const RawMethodInfo) =
+            transmute(ORIG_RACE_PARAM_DEFINE_HOOK);
+        orig(this, method);
+    }
+
+    if dump_race_param_define() && !this.is_null() {
+        let klass = FN_OBJECT_GET_CLASS.unwrap()(this);
+        if !klass.is_null() {
+            let name_ptr = FN_CLASS_GET_NAME.unwrap()(klass);
+            let class_name = CStr::from_ptr(name_ptr).to_string_lossy();
+            
+            if class_name == "RaceParamDefine" {
+                unsafe { RACE_PARAM_DEFINE_PTR = this as usize; }
+                log!("[RaceParamDefine] Caught instantiation!");
+                
+                let ptr_val = this as usize;
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    unsafe {
+                        let domain = FN_DOMAIN_GET.unwrap()();
+                        if !domain.is_null() {
+                            let mut thread = FN_THREAD_CURRENT.unwrap()();
+                            let mut manually_attached = false;
+                            
+                            if thread.is_null() {
+                                thread = FN_THREAD_ATTACH.unwrap()(domain);
+                                manually_attached = true;
+                            }
+                            
+                            if !thread.is_null() {
+                                let mut p_visited = HashSet::new();
+                                let obj = ptr_val as *mut RawIl2CppObject;
+                                let val = convert_object_to_value(obj, 0, &mut p_visited);
+                                crate::persistence::save_static_data("RaceParamDefine_Deferred", val);
+                            }
+                            
+                            if manually_attached {
+                                FN_THREAD_DETACH.unwrap()(thread);
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
 }
 
 pub unsafe extern "C" fn veteran_hook(

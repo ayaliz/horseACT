@@ -321,6 +321,50 @@ pub unsafe fn dump_class_recursive(
         map.insert(fname, val);
     }
 
+    let mut m_iter: *mut c_void = ptr::null_mut();
+    loop {
+        let method = FN_CLASS_GET_METHODS.unwrap()(klass, &mut m_iter);
+        if method.is_null() { break; }
+
+        let mut iflags: u32 = 0;
+        let flags = FN_METHOD_GET_FLAGS.unwrap()(method as *const RawMethodInfo, &mut iflags);
+        if (flags & 0x0010) == 0 { continue; } // METHOD_ATTRIBUTE_STATIC
+
+        let params_count = FN_METHOD_GET_PARAM_COUNT.unwrap()(method);
+        if params_count != 0 { continue; }
+
+        let m_name_ptr = FN_METHOD_GET_NAME.unwrap()(method);
+        let m_name = CStr::from_ptr(m_name_ptr).to_string_lossy().to_string();
+
+        if m_name.starts_with("get_") {
+            let prop_name = &m_name[4..];
+            let backing = format!("<{}>k__BackingField", prop_name);
+            if map.contains_key(&backing) { continue; }
+
+            log!(".. Invoking Static Getter: {}.{}", name, m_name);
+
+            let mut exc: *mut c_void = ptr::null_mut();
+            let res = FN_RUNTIME_INVOKE.unwrap()(
+                method as *const RawMethodInfo,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                &mut exc
+            );
+
+            if exc.is_null() {
+                if res.is_null() {
+                    map.insert(prop_name.to_string(), Value::Null);
+                } else {
+                    let mut p_visited = HashSet::new();
+                    let prop_val = convert_object_to_value(res, depth + 1, &mut p_visited);
+                    map.insert(prop_name.to_string(), prop_val);
+                }
+            } else {
+                map.insert(prop_name.to_string(), Value::String("<Invoke Exception>".to_string()));
+            }
+        }
+    }
+
     let mut iter: *mut c_void = ptr::null_mut();
     loop {
         let nested_class = FN_CLASS_GET_NESTED_TYPES.unwrap()(klass, &mut iter);
