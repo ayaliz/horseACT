@@ -1,5 +1,4 @@
-use core::ffi::{c_char, c_void, CStr};
-use hachimi_plugin_sdk::api::HachimiApi;
+use core::ffi::{c_char, c_void};
 use std::mem::transmute;
 
 // Type Definitions
@@ -36,7 +35,6 @@ pub type FnImageGetClassCount = unsafe extern "C" fn(*mut RawIl2CppImage) -> usi
 pub type FnImageGetClass = unsafe extern "C" fn(*mut RawIl2CppImage, usize) -> *mut RawIl2CppClass;
 pub type FnArrayNew = unsafe extern "C" fn(*mut RawIl2CppClass, usize) -> *mut RawIl2CppArray;
 pub type FnClassFromName = unsafe extern "C" fn(*const RawIl2CppImage, *const c_char, *const c_char) -> *mut RawIl2CppClass;
-pub type FnClassGetMethodFromName = unsafe extern "C" fn(*mut RawIl2CppClass, *const c_char, i32) -> *const RawMethodInfo;
 pub type FnGetCorlib = unsafe extern "C" fn() -> *const RawIl2CppImage;
 pub type FnFieldGetValueObject = unsafe extern "C" fn(*mut RawFieldInfo, *mut RawIl2CppObject) -> *mut RawIl2CppObject;
 pub type FnDomainGet = unsafe extern "C" fn() -> *mut RawIl2CppDomain;
@@ -76,7 +74,6 @@ pub static mut FN_IMAGE_GET_CLASS_COUNT: Option<FnImageGetClassCount> = None;
 pub static mut FN_IMAGE_GET_CLASS: Option<FnImageGetClass> = None;
 pub static mut FN_ARRAY_NEW: Option<FnArrayNew> = None;
 pub static mut FN_CLASS_FROM_NAME: Option<FnClassFromName> = None;
-pub static mut FN_CLASS_GET_METHOD_FROM_NAME: Option<FnClassGetMethodFromName> = None;
 pub static mut FN_GET_CORLIB: Option<FnGetCorlib> = None;
 pub static mut FN_DOMAIN_GET: Option<FnDomainGet> = None;
 pub static mut FN_THREAD_CURRENT: Option<FnThreadCurrent> = None;
@@ -97,13 +94,13 @@ pub static mut FN_FIELD_GET_VALUE_OBJECT: Option<FnFieldGetValueObject> = None;
 pub static mut FN_RUNTIME_INVOKE: Option<FnRuntimeInvoke> = None;
 pub static mut FN_METHOD_GET_FLAGS: Option<FnMethodGetFlags> = None;
 
-pub unsafe fn init_il2cpp_methods(api: &HachimiApi) -> bool {
-    let il2cpp = api.il2cpp();
-    let resolve = |name: &CStr| il2cpp.resolve_symbol(name);
-
+pub unsafe fn init_il2cpp_methods<F>(resolve: F) -> bool
+where
+    F: Fn(*const c_char) -> *mut c_void,
+{
     macro_rules! resolve_func {
         ($name:expr) => {
-            transmute(resolve($name))
+            transmute(resolve($name.as_ptr()))
         };
     }
 
@@ -125,7 +122,6 @@ pub unsafe fn init_il2cpp_methods(api: &HachimiApi) -> bool {
     FN_IMAGE_GET_CLASS = resolve_func!(c"il2cpp_image_get_class");
     FN_ARRAY_NEW = resolve_func!(c"il2cpp_array_new");
     FN_CLASS_FROM_NAME = resolve_func!(c"il2cpp_class_from_name");
-    FN_CLASS_GET_METHOD_FROM_NAME = resolve_func!(c"il2cpp_class_get_method_from_name");
     FN_GET_CORLIB = resolve_func!(c"il2cpp_get_corlib");
     FN_FIELD_GET_VALUE_OBJECT = resolve_func!(c"il2cpp_field_get_value_object");
 

@@ -1,0 +1,9 @@
+[
+  {
+    "name": "CircleRoomEnterResponse",
+    "fields": [
+      "data.circle_info",
+      "data.circle_user_array"
+    ]
+  }
+]

@@ -1,19 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::{
     env,
-    fs::{create_dir_all, read_to_string, File, OpenOptions},
+    ffi::CString,
+    fs::{create_dir_all, read_to_string, File},
     io::Write,
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
+    sync::OnceLock,
 };
 
-static LOG_LOCK: Mutex<()> = Mutex::new(());
 static SAVE_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static HACHIMI_DIR: OnceLock<PathBuf> = OnceLock::new();
-static ENABLE_LOGGING: OnceLock<bool> = OnceLock::new();
-static DUMP_STATIC_VARIABLE_DEFINE: OnceLock<bool> = OnceLock::new();
-static DUMP_RACE_PARAM_DEFINE: OnceLock<bool> = OnceLock::new();
-static DUMP_ENUMS: OnceLock<bool> = OnceLock::new();
+static API_KEY: OnceLock<String> = OnceLock::new();
+static SERVER_URL: OnceLock<String> = OnceLock::new();
 static FIELD_BLACKLIST: OnceLock<Vec<String>> = OnceLock::new();
 
 fn default_field_blacklist() -> Vec<String> {
@@ -33,14 +31,10 @@ fn default_field_blacklist() -> Vec<String> {
 struct Config {
     #[serde(rename = "outputPath")]
     output_path: Option<String>,
-    #[serde(rename = "enableLogging", default)]
-    enable_logging: bool,
-    #[serde(rename = "dumpStaticVariableDefine", default)]
-    dump_static_variable_define: bool,
-    #[serde(rename = "dumpRaceParamDefine", default)]
-    dump_race_param_define: bool,
-    #[serde(rename = "dumpEnums", default)]
-    dump_enums: bool,
+    #[serde(rename = "apiKey", default)]
+    api_key: String,
+    #[serde(rename = "serverUrl", default)]
+    server_url: String,
     #[serde(rename = "fieldBlacklist", default = "default_field_blacklist")]
     field_blacklist: Vec<String>,
 }
@@ -49,29 +43,30 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             output_path: Some("%USERPROFILE%\\Documents".to_string()),
-            enable_logging: false,
-            dump_static_variable_define: false,
-            dump_race_param_define: false,
-            dump_enums: false,
+            api_key: String::new(),
+            server_url: String::new(),
             field_blacklist: default_field_blacklist(),
         }
     }
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+pub struct EndpointConfig {
+    pub name: String,
+    #[serde(default)]
+    pub fields: Vec<String>,
+}
+
+pub fn api_key() -> &'static str {
+    API_KEY.get().map(|s| s.as_str()).unwrap_or("")
+}
+
+pub fn server_url() -> &'static str {
+    SERVER_URL.get().map(|s| s.as_str()).unwrap_or("")
+}
+
 pub fn save_root() -> &'static PathBuf {
     SAVE_ROOT.get().expect("save root not initialized")
-}
-
-pub fn dump_static_variable_define() -> bool {
-    *DUMP_STATIC_VARIABLE_DEFINE.get().unwrap_or(&false)
-}
-
-pub fn dump_race_param_define() -> bool {
-    *DUMP_RACE_PARAM_DEFINE.get().unwrap_or(&false)
-}
-
-pub fn dump_enums() -> bool {
-    *DUMP_ENUMS.get().unwrap_or(&false)
 }
 
 pub fn field_blacklist() -> &'static Vec<String> {
@@ -141,6 +136,7 @@ pub fn init_paths() -> Result<(), String> {
         "Practice room",
         "Career",
         "Other",
+        "API responses",
     ];
 
     for d in sub_dirs {
@@ -151,10 +147,8 @@ pub fn init_paths() -> Result<(), String> {
     }
 
     SAVE_ROOT.set(saved).map_err(|_| "SAVE_ROOT was already initialized".to_string())?;
-    let _ = ENABLE_LOGGING.set(cfg.enable_logging);
-    let _ = DUMP_STATIC_VARIABLE_DEFINE.set(cfg.dump_static_variable_define);
-    let _ = DUMP_RACE_PARAM_DEFINE.set(cfg.dump_race_param_define);
-    let _ = DUMP_ENUMS.set(cfg.dump_enums);
+    let _ = API_KEY.set(cfg.api_key);
+    let _ = SERVER_URL.set(cfg.server_url);
     let _ = FIELD_BLACKLIST.set(cfg.field_blacklist);
     Ok(())
 }
@@ -167,17 +161,9 @@ macro_rules! log {
 }
 
 pub fn debug_log_internal(msg: &str) {
-    if !*ENABLE_LOGGING.get().unwrap_or(&false) {
-        return;
-    }
-
-    let _ = std::panic::catch_unwind(|| {
-        let _guard = LOG_LOCK.lock();
-        if let Some(hachimi_dir) = HACHIMI_DIR.get() {
-            let path = hachimi_dir.join("dumper_debug.txt");
-            if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-                let _ = writeln!(file, "{}", msg);
-            }
+    if let Ok(message) = CString::new(msg) {
+        unsafe {
+            (crate::plugin_api::vtable().log)(3, c"horseACT".as_ptr(), message.as_ptr());
         }
-    });
+    }
 }

@@ -1,0 +1,1 @@
+don't bother stealing the stuff in .env this is only for proof of concept

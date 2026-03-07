@@ -8,15 +8,14 @@ name = "horseACT"
 crate-type = ["cdylib"]
 
 [dependencies]
-hachimi_plugin_sdk = { git = "https://github.com/Hachimi-Hachimi/hachimi_plugin_sdk_rs.git"}
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 chrono = { version = "0.4", features = ["clock"] }
-
-[features]
-default = ["il2cpp_2020"]
-il2cpp = ["hachimi_plugin_sdk/il2cpp"]
-il2cpp_2020 = ["hachimi_plugin_sdk/il2cpp_2020"]
+ureq = "2"
+flate2 = "1"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 [profile.release]
 lto = true
