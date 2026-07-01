@@ -19,13 +19,13 @@ static LOG_MUTEX: Mutex<()> = Mutex::new(());
 fn default_field_blacklist() -> Vec<String> {
     vec![
         "_ownerViewerId".to_string(),
-		"_viewerId".to_string(),
-		"owner_viewer_id".to_string(),
+        "_viewerId".to_string(),
+        "owner_viewer_id".to_string(),
         "viewer_id".to_string(),
         "<SimData>k__BackingField".to_string(),
         "<SimReader>k__BackingField".to_string(),
         "CreateTime".to_string(),
-		"succession_history_array".to_string(),
+        "succession_history_array".to_string(),
     ]
 }
 
@@ -88,7 +88,9 @@ pub fn save_root() -> &'static PathBuf {
 }
 
 pub fn field_blacklist() -> &'static Vec<String> {
-    FIELD_BLACKLIST.get().expect("field blacklist not initialized")
+    FIELD_BLACKLIST
+        .get()
+        .expect("field blacklist not initialized")
 }
 
 pub fn save_career_races() -> bool {
@@ -115,6 +117,7 @@ pub fn init_paths() -> Result<(), String> {
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."));
+    debug_log_internal(&format!("[Config] plugin_dir={}", plugin_dir.display()));
 
     let cfg_dir = plugin_dir.join("hachimi");
     if let Err(e) = create_dir_all(&cfg_dir) {
@@ -122,13 +125,16 @@ pub fn init_paths() -> Result<(), String> {
     }
 
     let cfg_path = cfg_dir.join("horseACTConfig.json");
+    debug_log_internal(&format!("[Config] config_path={}", cfg_path.display()));
 
     let cfg: Config = if cfg_path.exists() {
+        debug_log_internal("[Config] Loading existing config.");
         read_to_string(&cfg_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default()
     } else {
+        debug_log_internal("[Config] Config not found; writing defaults.");
         Config::default()
     };
 
@@ -160,6 +166,17 @@ pub fn init_paths() -> Result<(), String> {
     };
 
     let saved = resolved_root.join("Saved races");
+    debug_log_internal(&format!(
+        "[Config] outputPath={:?}, resolved_save_root={}",
+        cfg.output_path,
+        saved.display()
+    ));
+    debug_log_internal(&format!(
+        "[Config] saveCareerRaces={}, saveTTRaces={}, fieldBlacklistCount={}",
+        cfg.save_career_races,
+        cfg.save_tt_races,
+        cfg.field_blacklist.len()
+    ));
 
     let sub_dirs = [
         "Room match",
@@ -178,7 +195,9 @@ pub fn init_paths() -> Result<(), String> {
         }
     }
 
-    SAVE_ROOT.set(saved).map_err(|_| "SAVE_ROOT was already initialized".to_string())?;
+    SAVE_ROOT
+        .set(saved)
+        .map_err(|_| "SAVE_ROOT was already initialized".to_string())?;
     let _ = API_KEY.set(cfg.api_key);
     let _ = SERVER_URL.set(cfg.server_url);
     let _ = FIELD_BLACKLIST.set(cfg.field_blacklist);
@@ -206,6 +225,7 @@ pub fn debug_log_internal(msg: &str) {
     let log_path = log_dir.join("horseACT.log");
 
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
-        let _ = writeln!(file, "{}", msg);
+        let now = chrono::Local::now();
+        let _ = writeln!(file, "{} {}", now.format("%Y-%m-%d %H:%M:%S%.3f"), msg);
     }
 }

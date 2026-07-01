@@ -1,3 +1,4 @@
+use crate::log;
 use core::ffi::{c_char, c_void};
 use std::ffi::CStr;
 use std::mem::transmute;
@@ -20,7 +21,8 @@ pub const FIELD_ATTRIBUTE_STATIC: u32 = 0x0010;
 pub const FIELD_ATTRIBUTE_LITERAL: u32 = 0x0040;
 
 // Function Pointer Types
-pub type FnClassGetFields = unsafe extern "C" fn(*mut RawIl2CppClass, *mut *mut c_void) -> *mut RawFieldInfo;
+pub type FnClassGetFields =
+    unsafe extern "C" fn(*mut RawIl2CppClass, *mut *mut c_void) -> *mut RawFieldInfo;
 pub type FnFieldGetName = unsafe extern "C" fn(*mut RawFieldInfo) -> *const c_char;
 pub type FnFieldGetType = unsafe extern "C" fn(*mut RawFieldInfo) -> *mut RawIl2CppType;
 pub type FnFieldGetOffset = unsafe extern "C" fn(*mut RawFieldInfo) -> usize;
@@ -29,7 +31,8 @@ pub type FnArrayLength = unsafe extern "C" fn(*mut RawIl2CppArray) -> u32;
 pub type FnObjectGetClass = unsafe extern "C" fn(*mut RawIl2CppObject) -> *mut RawIl2CppClass;
 pub type FnClassGetName = unsafe extern "C" fn(*mut RawIl2CppClass) -> *const c_char;
 pub type FnClassGetParent = unsafe extern "C" fn(*mut RawIl2CppClass) -> *mut RawIl2CppClass;
-pub type FnClassGetMethods = unsafe extern "C" fn(*mut RawIl2CppClass, *mut *mut c_void) -> *mut RawMethodInfo;
+pub type FnClassGetMethods =
+    unsafe extern "C" fn(*mut RawIl2CppClass, *mut *mut c_void) -> *mut RawMethodInfo;
 pub type FnMethodGetParamCount = unsafe extern "C" fn(*mut RawMethodInfo) -> u32;
 pub type FnMethodGetParam = unsafe extern "C" fn(*mut RawMethodInfo, u32) -> *mut RawIl2CppType;
 pub type FnClassFromType = unsafe extern "C" fn(*mut RawIl2CppType) -> *mut RawIl2CppClass;
@@ -37,13 +40,18 @@ pub type FnMethodGetName = unsafe extern "C" fn(*mut RawMethodInfo) -> *const c_
 pub type FnImageGetClassCount = unsafe extern "C" fn(*mut RawIl2CppImage) -> usize;
 pub type FnImageGetClass = unsafe extern "C" fn(*mut RawIl2CppImage, usize) -> *mut RawIl2CppClass;
 pub type FnArrayNew = unsafe extern "C" fn(*mut RawIl2CppClass, usize) -> *mut RawIl2CppArray;
-pub type FnClassFromName = unsafe extern "C" fn(*const RawIl2CppImage, *const c_char, *const c_char) -> *mut RawIl2CppClass;
+pub type FnClassFromName = unsafe extern "C" fn(
+    *const RawIl2CppImage,
+    *const c_char,
+    *const c_char,
+) -> *mut RawIl2CppClass;
 pub type FnGetCorlib = unsafe extern "C" fn() -> *const RawIl2CppImage;
 pub type FnDomainGetAssemblies =
     unsafe extern "C" fn(*mut RawIl2CppDomain, *mut usize) -> *mut *const RawIl2CppAssembly;
 pub type FnAssemblyGetImage = unsafe extern "C" fn(*const RawIl2CppAssembly) -> *mut RawIl2CppImage;
 pub type FnImageGetName = unsafe extern "C" fn(*const RawIl2CppImage) -> *const c_char;
-pub type FnFieldGetValueObject = unsafe extern "C" fn(*mut RawFieldInfo, *mut RawIl2CppObject) -> *mut RawIl2CppObject;
+pub type FnFieldGetValueObject =
+    unsafe extern "C" fn(*mut RawFieldInfo, *mut RawIl2CppObject) -> *mut RawIl2CppObject;
 pub type FnDomainGet = unsafe extern "C" fn() -> *mut RawIl2CppDomain;
 pub type FnThreadCurrent = unsafe extern "C" fn() -> *mut RawIl2CppThread;
 pub type FnThreadAttach = unsafe extern "C" fn(*mut RawIl2CppDomain) -> *mut RawIl2CppThread;
@@ -56,10 +64,16 @@ pub type FnClassIsValueType = unsafe extern "C" fn(*mut RawIl2CppClass) -> bool;
 pub type FnClassValueSize = unsafe extern "C" fn(*mut RawIl2CppClass, *mut u32) -> i32;
 pub type FnClassIsInterface = unsafe extern "C" fn(*mut RawIl2CppClass) -> bool;
 pub type FnClassGetImage = unsafe extern "C" fn(*mut RawIl2CppClass) -> *mut RawIl2CppImage;
-pub type FnClassGetNestedTypes = unsafe extern "C" fn(*mut RawIl2CppClass, *mut *mut c_void) -> *mut RawIl2CppClass;
+pub type FnClassGetNestedTypes =
+    unsafe extern "C" fn(*mut RawIl2CppClass, *mut *mut c_void) -> *mut RawIl2CppClass;
 pub type FnRuntimeClassInit = unsafe extern "C" fn(*mut RawIl2CppClass);
 pub type FnClassIsGeneric = unsafe extern "C" fn(*mut RawIl2CppClass) -> bool;
-pub type FnRuntimeInvoke = unsafe extern "C" fn(*const RawMethodInfo, *mut c_void, *mut *mut c_void, *mut *mut c_void) -> *mut RawIl2CppObject;
+pub type FnRuntimeInvoke = unsafe extern "C" fn(
+    *const RawMethodInfo,
+    *mut c_void,
+    *mut *mut c_void,
+    *mut *mut c_void,
+) -> *mut RawIl2CppObject;
 pub type FnMethodGetFlags = unsafe extern "C" fn(*const RawMethodInfo, *mut u32) -> u32;
 pub type FnClassGetMethodFromName =
     unsafe extern "C" fn(*mut RawIl2CppClass, *const c_char, i32) -> *mut RawMethodInfo;
@@ -218,6 +232,45 @@ pub unsafe fn find_image_by_name(name: &str) -> *mut RawIl2CppImage {
     }
 
     ptr::null_mut()
+}
+
+pub unsafe fn log_loaded_images() {
+    let domain = FN_DOMAIN_GET.unwrap()();
+    if domain.is_null() {
+        log!("[IL2CPP] Cannot list loaded images: domain is null");
+        return;
+    }
+
+    let mut count = 0usize;
+    let assemblies = FN_DOMAIN_GET_ASSEMBLIES.unwrap()(domain, &mut count);
+    if assemblies.is_null() {
+        log!("[IL2CPP] Cannot list loaded images: assembly list is null");
+        return;
+    }
+
+    log!("[IL2CPP] Loaded assembly image count: {}", count);
+    for i in 0..count {
+        let assembly = *assemblies.add(i);
+        if assembly.is_null() {
+            log!("[IL2CPP] image[{}]: <null assembly>", i);
+            continue;
+        }
+
+        let image = FN_ASSEMBLY_GET_IMAGE.unwrap()(assembly);
+        if image.is_null() {
+            log!("[IL2CPP] image[{}]: <null image>", i);
+            continue;
+        }
+
+        let image_name_ptr = FN_IMAGE_GET_NAME.unwrap()(image);
+        if image_name_ptr.is_null() {
+            log!("[IL2CPP] image[{}]: <null image name>", i);
+            continue;
+        }
+
+        let image_name = CStr::from_ptr(image_name_ptr).to_string_lossy();
+        log!("[IL2CPP] image[{}]: {}", i, image_name);
+    }
 }
 
 pub unsafe fn get_class_from_image(
