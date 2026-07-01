@@ -5,9 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::il2cpp::*;
 use crate::log;
-use crate::persistence::{
-    save_debug_response, save_race_info, save_team_trial_result, save_veteran_data,
-};
+use crate::persistence::{save_race_info, save_team_trial_result, save_veteran_data};
 use crate::reflection::convert_object_to_value;
 
 pub static mut ORIG_VETERAN_APPLY: usize = 0;
@@ -39,20 +37,6 @@ pub static RACE_INFO_OBJECT_HOOK_NAMES: [&str; MAX_RACE_INFO_OBJECT_HOOKS] =
 
 pub const MAX_API_HOOKS: usize = 8;
 pub static mut API_HOOK_ORIGS: [usize; MAX_API_HOOKS] = [0; MAX_API_HOOKS];
-
-pub const MAX_COMMON_RESPONSE_PROBES: usize = 8;
-pub static mut COMMON_RESPONSE_PROBE_ORIGS: [usize; MAX_COMMON_RESPONSE_PROBES] =
-    [0; MAX_COMMON_RESPONSE_PROBES];
-pub static COMMON_RESPONSE_PROBE_NAMES: [&str; MAX_COMMON_RESPONSE_PROBES] = [
-    "CurrentRaceInfo.Update",
-    "RaceResultData..ctor",
-    "SavedRaceResultData..ctor",
-    "RaceResultInfo..ctor",
-    "WorkPracticeRaceData.Update",
-    "WorkRaceStateData.Apply",
-    "Stage1CurrentRaceInfo.Apply",
-    "FinalCurrentRaceInfo.Apply",
-];
 
 type RaceInfoHookFn = unsafe extern "C" fn(*mut RawIl2CppObject, *const RawMethodInfo) -> i32;
 type RaceInfoObjectHookFn =
@@ -132,40 +116,6 @@ macro_rules! api_hook_slot {
     };
 }
 
-macro_rules! common_response_probe_slot {
-    ($idx:expr, $fn_name:ident) => {
-        pub unsafe extern "C" fn $fn_name(
-            this: *mut RawIl2CppObject,
-            response: *mut RawIl2CppObject,
-            method: *const RawMethodInfo,
-        ) {
-            let orig = COMMON_RESPONSE_PROBE_ORIGS[$idx];
-            if orig != 0 {
-                let orig_fn: ApiHookFn = transmute(orig);
-                orig_fn(this, response, method);
-            }
-
-            if response.is_null() {
-                log!(
-                    "[CommonResponseProbe] {} response is null; skipping.",
-                    COMMON_RESPONSE_PROBE_NAMES[$idx]
-                );
-                return;
-            }
-
-            log!(
-                "[CommonResponseProbe] {} triggered; this={:p}, response={:p}",
-                COMMON_RESPONSE_PROBE_NAMES[$idx],
-                this,
-                response
-            );
-            let mut visited = HashSet::new();
-            let val = convert_object_to_value(response, 0, &mut visited, &[]);
-            save_debug_response(COMMON_RESPONSE_PROBE_NAMES[$idx], val);
-        }
-    };
-}
-
 race_info_hook_slot!(0, race_info_hook_slot_0);
 race_info_hook_slot!(1, race_info_hook_slot_1);
 race_info_hook_slot!(2, race_info_hook_slot_2);
@@ -187,15 +137,6 @@ api_hook_slot!(4, api_hook_slot_4);
 api_hook_slot!(5, api_hook_slot_5);
 api_hook_slot!(6, api_hook_slot_6);
 api_hook_slot!(7, api_hook_slot_7);
-
-common_response_probe_slot!(0, common_response_probe_slot_0);
-common_response_probe_slot!(1, common_response_probe_slot_1);
-common_response_probe_slot!(2, common_response_probe_slot_2);
-common_response_probe_slot!(3, common_response_probe_slot_3);
-common_response_probe_slot!(4, common_response_probe_slot_4);
-common_response_probe_slot!(5, common_response_probe_slot_5);
-common_response_probe_slot!(6, common_response_probe_slot_6);
-common_response_probe_slot!(7, common_response_probe_slot_7);
 
 pub static API_HOOK_FNS: [ApiHookFn; MAX_API_HOOKS] = [
     api_hook_slot_0,
@@ -223,17 +164,6 @@ pub static RACE_INFO_OBJECT_HOOK_FNS: [RaceInfoObjectHookFn; MAX_RACE_INFO_OBJEC
     race_info_object_hook_slot_0,
     race_info_object_hook_slot_1,
     race_info_object_hook_slot_2,
-];
-
-pub static COMMON_RESPONSE_PROBE_FNS: [ApiHookFn; MAX_COMMON_RESPONSE_PROBES] = [
-    common_response_probe_slot_0,
-    common_response_probe_slot_1,
-    common_response_probe_slot_2,
-    common_response_probe_slot_3,
-    common_response_probe_slot_4,
-    common_response_probe_slot_5,
-    common_response_probe_slot_6,
-    common_response_probe_slot_7,
 ];
 
 static LAST_DUMPED_PTR: AtomicUsize = AtomicUsize::new(0);

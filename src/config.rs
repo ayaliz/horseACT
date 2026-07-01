@@ -185,7 +185,6 @@ pub fn init_paths() -> Result<(), String> {
         "Career",
         "Team trials",
         "Other",
-        "API responses",
     ];
 
     for d in sub_dirs {

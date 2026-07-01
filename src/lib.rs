@@ -12,11 +12,10 @@ use crate::config::init_paths;
 use crate::hooks::{
     cache_race_info_sim_data_offset, log_class_fields, log_class_methods, team_stadium_result_hook,
     race_manager_get_player_horse_index_hook, set_and_deserialize_base64_hook,
-    set_sim_data_base64_hook, veteran_hook, API_HOOK_FNS, API_HOOK_ORIGS,
-    COMMON_RESPONSE_PROBE_FNS, COMMON_RESPONSE_PROBE_NAMES, COMMON_RESPONSE_PROBE_ORIGS,
-    MAX_API_HOOKS, ORIG_RACE_MANAGER_GET_PLAYER_HORSE_INDEX, ORIG_SET_AND_DESERIALIZE_BASE64,
-    ORIG_SET_SIM_DATA_BASE64, ORIG_TEAM_STADIUM_RESULT, ORIG_VETERAN_APPLY,
-    RACE_INFO_HOOK_FNS, RACE_INFO_HOOK_NAMES, RACE_INFO_HOOK_ORIGS, RACE_INFO_OBJECT_HOOK_FNS,
+    set_sim_data_base64_hook, veteran_hook, API_HOOK_FNS, API_HOOK_ORIGS, MAX_API_HOOKS,
+    ORIG_RACE_MANAGER_GET_PLAYER_HORSE_INDEX, ORIG_SET_AND_DESERIALIZE_BASE64,
+    ORIG_SET_SIM_DATA_BASE64, ORIG_TEAM_STADIUM_RESULT, ORIG_VETERAN_APPLY, RACE_INFO_HOOK_FNS,
+    RACE_INFO_HOOK_NAMES, RACE_INFO_HOOK_ORIGS, RACE_INFO_OBJECT_HOOK_FNS,
     RACE_INFO_OBJECT_HOOK_NAMES, RACE_INFO_OBJECT_HOOK_ORIGS, RACE_MANAGER_GET_RACE_INFO_ADDR,
     RACE_MANAGER_GET_RACE_INFO_METHOD,
 };
@@ -138,8 +137,6 @@ unsafe fn install_hooks() {
         }
     }
 
-    install_common_response_probes(target_image as *mut RawIl2CppImage);
-
     match api::fetch_endpoint_config() {
         Ok(configs) => {
             log!("Fetched {} endpoint config(s) from server.", configs.len());
@@ -191,47 +188,6 @@ unsafe fn install_race_info_probe_hooks(race_info_class: *mut crate::il2cpp::Raw
     install_race_info_probe_hook(race_info_class, 4, c"get_ResultHorseIndex".as_ptr());
     install_race_info_probe_hook(race_info_class, 5, c"get_GroundCondition".as_ptr());
     install_race_info_probe_hook(race_info_class, 7, c"get_CourseDistanceType".as_ptr());
-}
-
-unsafe fn install_common_response_probes(target_image: *mut RawIl2CppImage) {
-    let results = find_methods_in_assembly_by_param(target_image, "CommonResponse");
-    if results.is_empty() {
-        log!("[CommonResponseProbe] No methods found taking CommonResponse parameter");
-        return;
-    }
-
-    for (slot, target) in COMMON_RESPONSE_PROBE_NAMES.iter().enumerate() {
-        let (class_name, method_name) = if let Some(class_name) = target.strip_suffix("..ctor") {
-            (class_name, ".ctor")
-        } else {
-            let mut parts = target.rsplitn(2, '.');
-            let method_name = parts.next().unwrap_or("");
-            let class_name = parts.next().unwrap_or("");
-            (class_name, method_name)
-        };
-
-        let candidate = results
-            .iter()
-            .find(|r| r.class_name == class_name && r.method_name == method_name);
-
-        if let Some(result) = candidate {
-            let fn_ptr = method_addr(result.method);
-            if fn_ptr == 0 {
-                log!("[CommonResponseProbe] {} method pointer is null", target);
-                continue;
-            }
-
-            log!("[CommonResponseProbe] {} addr={:#x}", target, fn_ptr);
-            if let Some(orig) = hook(fn_ptr, COMMON_RESPONSE_PROBE_FNS[slot] as usize) {
-                COMMON_RESPONSE_PROBE_ORIGS[slot] = orig;
-                log!("[CommonResponseProbe] Hook installed on {}", target);
-            } else {
-                log!("[CommonResponseProbe] Failed to install hook on {}", target);
-            }
-        } else {
-            log!("[CommonResponseProbe] Target {} not found", target);
-        }
-    }
 }
 
 unsafe fn install_race_manager_probe_hook(

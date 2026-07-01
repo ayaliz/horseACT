@@ -231,67 +231,6 @@ pub fn save_team_trial_result(mut response: Value) {
     }
 }
 
-pub fn save_debug_response(label: &str, mut response: Value) {
-    if let Value::Object(ref mut map) = response {
-        map.insert(
-            "horseACT_version".to_string(),
-            Value::String(env!("CARGO_PKG_VERSION").to_string()),
-        );
-        map.insert(
-            "horseACT_debug_label".to_string(),
-            Value::String(label.to_string()),
-        );
-    }
-
-    let key_count = response.as_object().map(|m| m.len()).unwrap_or(0);
-    log!(
-        "[CommonResponseProbe] Saving {}: type={}, top_level_keys={}",
-        label,
-        value_kind(&response),
-        key_count
-    );
-
-    let now = chrono::Local::now();
-    let safe_label: String = label
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let filename = format!("{}-{}.json", safe_label, now.format("%Y%m%d_%H%M%S_%3f"));
-    let dir = save_root().join("API responses");
-
-    if !dir.exists() {
-        if let Err(e) = fs::create_dir_all(&dir) {
-            log!("[CommonResponseProbe] Failed to create dir {:?}: {}", dir, e);
-            return;
-        }
-    }
-
-    let path = dir.join(filename);
-    match File::create(&path) {
-        Ok(mut f) => match serde_json::to_string_pretty(&response) {
-            Ok(json_str) => {
-                if let Err(e) = write!(f, "{}", json_str) {
-                    log!("[CommonResponseProbe] Failed to write JSON: {}", e);
-                } else {
-                    log!("[CommonResponseProbe] Saved to: {}", path.display());
-                }
-            }
-            Err(e) => {
-                log!("[CommonResponseProbe] Failed to serialize JSON: {}", e);
-            }
-        },
-        Err(e) => {
-            log!("[CommonResponseProbe] Failed to create file: {}", e);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{normalize_field_name, normalize_field_names};
