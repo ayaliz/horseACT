@@ -10,83 +10,17 @@ use crate::reflection::convert_object_to_value;
 
 pub static mut ORIG_VETERAN_APPLY: usize = 0;
 pub static mut ORIG_TEAM_STADIUM_RESULT: usize = 0;
-pub static mut ORIG_SET_SIM_DATA_BASE64: usize = 0;
-pub static mut ORIG_SET_AND_DESERIALIZE_BASE64: usize = 0;
-pub static mut ORIG_RACE_MANAGER_GET_PLAYER_HORSE_INDEX: usize = 0;
+pub static mut ORIG_RACE_INITIALIZER_CREATE_RACE_INFO: usize = 0;
 pub static mut RACE_MANAGER_GET_RACE_INFO_ADDR: usize = 0;
 pub static mut RACE_MANAGER_GET_RACE_INFO_METHOD: usize = 0;
-
-pub const MAX_RACE_INFO_HOOKS: usize = 8;
-pub static mut RACE_INFO_HOOK_ORIGS: [usize; MAX_RACE_INFO_HOOKS] = [0; MAX_RACE_INFO_HOOKS];
-pub static RACE_INFO_HOOK_NAMES: [&str; MAX_RACE_INFO_HOOKS] = [
-    "get_RaceTrackId",
-    "get_RaceNo",
-    "get_RaceType",
-    "get_NumRaceHorses",
-    "get_ResultHorseIndex",
-    "get_GroundCondition",
-    "get_Weather",
-    "get_CourseDistanceType",
-];
-
-pub const MAX_RACE_INFO_OBJECT_HOOKS: usize = 3;
-pub static mut RACE_INFO_OBJECT_HOOK_ORIGS: [usize; MAX_RACE_INFO_OBJECT_HOOKS] =
-    [0; MAX_RACE_INFO_OBJECT_HOOKS];
-pub static RACE_INFO_OBJECT_HOOK_NAMES: [&str; MAX_RACE_INFO_OBJECT_HOOKS] =
-    ["get_SimDataBase64", "get_SimData", "get_RaceHorse"];
 
 pub const MAX_API_HOOKS: usize = 8;
 pub static mut API_HOOK_ORIGS: [usize; MAX_API_HOOKS] = [0; MAX_API_HOOKS];
 
-type RaceInfoHookFn = unsafe extern "C" fn(*mut RawIl2CppObject, *const RawMethodInfo) -> i32;
-type RaceInfoObjectHookFn =
-    unsafe extern "C" fn(*mut RawIl2CppObject, *const RawMethodInfo) -> *mut RawIl2CppObject;
-type RaceInfoStringArgHookFn =
-    unsafe extern "C" fn(*mut RawIl2CppObject, *mut RawIl2CppObject, *const RawMethodInfo);
-type RaceManagerIntHookFn = unsafe extern "C" fn(*mut RawIl2CppObject, *const RawMethodInfo) -> i32;
-type RaceManagerRaceInfoFn =
-    unsafe extern "C" fn(*mut RawIl2CppObject, *const RawMethodInfo) -> *mut RawIl2CppObject;
+type StaticRaceInfoGetterFn = unsafe extern "C" fn(*const RawMethodInfo) -> *mut RawIl2CppObject;
+type StaticObjectArgHookFn = unsafe extern "C" fn(*mut RawIl2CppObject, *const RawMethodInfo);
 type ApiHookFn =
     unsafe extern "C" fn(*mut RawIl2CppObject, *mut RawIl2CppObject, *const RawMethodInfo);
-
-macro_rules! race_info_hook_slot {
-    ($idx:expr, $fn_name:ident) => {
-        pub unsafe extern "C" fn $fn_name(
-            this: *mut RawIl2CppObject,
-            method: *const RawMethodInfo,
-        ) -> i32 {
-            inspect_race_info_candidate(this, RACE_INFO_HOOK_NAMES[$idx], 0);
-
-            let orig = RACE_INFO_HOOK_ORIGS[$idx];
-            if orig != 0 {
-                let orig_fn: RaceInfoHookFn = transmute(orig);
-                return orig_fn(this, method);
-            }
-
-            0
-        }
-    };
-}
-
-macro_rules! race_info_object_hook_slot {
-    ($idx:expr, $fn_name:ident) => {
-        pub unsafe extern "C" fn $fn_name(
-            this: *mut RawIl2CppObject,
-            method: *const RawMethodInfo,
-        ) -> *mut RawIl2CppObject {
-            let orig = RACE_INFO_OBJECT_HOOK_ORIGS[$idx];
-            let result = if orig != 0 {
-                let orig_fn: RaceInfoObjectHookFn = transmute(orig);
-                orig_fn(this, method)
-            } else {
-                std::ptr::null_mut()
-            };
-
-            inspect_race_info_candidate(this, RACE_INFO_OBJECT_HOOK_NAMES[$idx], result as usize);
-            result
-        }
-    };
-}
 
 macro_rules! api_hook_slot {
     ($idx:expr, $fn_name:ident) => {
@@ -116,19 +50,6 @@ macro_rules! api_hook_slot {
     };
 }
 
-race_info_hook_slot!(0, race_info_hook_slot_0);
-race_info_hook_slot!(1, race_info_hook_slot_1);
-race_info_hook_slot!(2, race_info_hook_slot_2);
-race_info_hook_slot!(3, race_info_hook_slot_3);
-race_info_hook_slot!(4, race_info_hook_slot_4);
-race_info_hook_slot!(5, race_info_hook_slot_5);
-race_info_hook_slot!(6, race_info_hook_slot_6);
-race_info_hook_slot!(7, race_info_hook_slot_7);
-
-race_info_object_hook_slot!(0, race_info_object_hook_slot_0);
-race_info_object_hook_slot!(1, race_info_object_hook_slot_1);
-race_info_object_hook_slot!(2, race_info_object_hook_slot_2);
-
 api_hook_slot!(0, api_hook_slot_0);
 api_hook_slot!(1, api_hook_slot_1);
 api_hook_slot!(2, api_hook_slot_2);
@@ -149,31 +70,46 @@ pub static API_HOOK_FNS: [ApiHookFn; MAX_API_HOOKS] = [
     api_hook_slot_7,
 ];
 
-pub static RACE_INFO_HOOK_FNS: [RaceInfoHookFn; MAX_RACE_INFO_HOOKS] = [
-    race_info_hook_slot_0,
-    race_info_hook_slot_1,
-    race_info_hook_slot_2,
-    race_info_hook_slot_3,
-    race_info_hook_slot_4,
-    race_info_hook_slot_5,
-    race_info_hook_slot_6,
-    race_info_hook_slot_7,
-];
-
-pub static RACE_INFO_OBJECT_HOOK_FNS: [RaceInfoObjectHookFn; MAX_RACE_INFO_OBJECT_HOOKS] = [
-    race_info_object_hook_slot_0,
-    race_info_object_hook_slot_1,
-    race_info_object_hook_slot_2,
-];
-
 static LAST_DUMPED_PTR: AtomicUsize = AtomicUsize::new(0);
 static LOGGED_NULL_THIS: AtomicBool = AtomicBool::new(false);
 static LOGGED_SIMDATA_FIELD_MISSING: AtomicBool = AtomicBool::new(false);
 static NON_RACEINFO_LOG_COUNT: AtomicUsize = AtomicUsize::new(0);
 static NULL_SIMDATA_LOG_COUNT: AtomicUsize = AtomicUsize::new(0);
-static NULL_RACE_MANAGER_RACEINFO_LOG_COUNT: AtomicUsize = AtomicUsize::new(0);
 static mut LAST_SIM_DATA_PTR: usize = 0;
 static mut SIM_DATA_OFFSET: i32 = -1;
+
+unsafe fn get_current_race_info() -> *mut RawIl2CppObject {
+    if RACE_MANAGER_GET_RACE_INFO_ADDR == 0 || RACE_MANAGER_GET_RACE_INFO_METHOD == 0 {
+        return std::ptr::null_mut();
+    }
+
+    let getter: StaticRaceInfoGetterFn = transmute(RACE_MANAGER_GET_RACE_INFO_ADDR);
+    getter(RACE_MANAGER_GET_RACE_INFO_METHOD as *const RawMethodInfo)
+}
+
+pub unsafe extern "C" fn race_initializer_create_race_info_hook(
+    load_race_info: *mut RawIl2CppObject,
+    method: *const RawMethodInfo,
+) {
+    log!(
+        "[RaceInitializer] Entered CreateRaceInfo(loadRaceInfo={:p}).",
+        load_race_info
+    );
+
+    if ORIG_RACE_INITIALIZER_CREATE_RACE_INFO != 0 {
+        let orig: StaticObjectArgHookFn = transmute(ORIG_RACE_INITIALIZER_CREATE_RACE_INFO);
+        orig(load_race_info, method);
+    }
+
+    let race_info = get_current_race_info();
+    log!(
+        "[RaceInitializer] CreateRaceInfo returned; stored RaceInfo={:p}.",
+        race_info
+    );
+    if !race_info.is_null() {
+        inspect_race_info_candidate(race_info, "RaceInitializer.CreateRaceInfo", 0);
+    }
+}
 
 unsafe fn class_name(klass: *mut RawIl2CppClass) -> String {
     if klass.is_null() {
@@ -186,41 +122,6 @@ unsafe fn class_name(klass: *mut RawIl2CppClass) -> String {
     }
 
     CStr::from_ptr(name_ptr).to_string_lossy().to_string()
-}
-
-pub unsafe fn log_class_methods(klass: *mut RawIl2CppClass, label: &str) {
-    if klass.is_null() {
-        log!("[Debug] {} method dump skipped: class is null", label);
-        return;
-    }
-
-    log!("[Debug] Methods for {} ({})", label, class_name(klass));
-    let mut iter = std::ptr::null_mut();
-    let mut count = 0usize;
-    loop {
-        let method = FN_CLASS_GET_METHODS.unwrap()(klass, &mut iter);
-        if method.is_null() {
-            break;
-        }
-
-        count += 1;
-        let name_ptr = FN_METHOD_GET_NAME.unwrap()(method);
-        let method_name = if name_ptr.is_null() {
-            "<null method name>".to_string()
-        } else {
-            CStr::from_ptr(name_ptr).to_string_lossy().to_string()
-        };
-        let param_count = FN_METHOD_GET_PARAM_COUNT.unwrap()(method);
-        let addr = crate::il2cpp::method_addr(method);
-        log!(
-            "[Debug] Method {}.{} params={} addr={:#x}",
-            class_name(klass),
-            method_name,
-            param_count,
-            addr
-        );
-    }
-    log!("[Debug] Method count for {}: {}", label, count);
 }
 
 pub unsafe fn log_class_fields(klass: *mut RawIl2CppClass, label: &str) {
@@ -416,69 +317,6 @@ unsafe fn inspect_race_info_candidate(
             FN_THREAD_DETACH.unwrap()(thread);
         }
     }
-}
-
-pub unsafe extern "C" fn set_sim_data_base64_hook(
-    this: *mut RawIl2CppObject,
-    value: *mut RawIl2CppObject,
-    method: *const RawMethodInfo,
-) {
-    if ORIG_SET_SIM_DATA_BASE64 != 0 {
-        let orig: RaceInfoStringArgHookFn = transmute(ORIG_SET_SIM_DATA_BASE64);
-        orig(this, value, method);
-    }
-
-    inspect_race_info_candidate(this, "set_SimDataBase64", value as usize);
-}
-
-pub unsafe extern "C" fn set_and_deserialize_base64_hook(
-    this: *mut RawIl2CppObject,
-    value: *mut RawIl2CppObject,
-    method: *const RawMethodInfo,
-) {
-    if ORIG_SET_AND_DESERIALIZE_BASE64 != 0 {
-        let orig: RaceInfoStringArgHookFn = transmute(ORIG_SET_AND_DESERIALIZE_BASE64);
-        orig(this, value, method);
-    }
-
-    inspect_race_info_candidate(this, "SetAndDeserializeBase64", value as usize);
-}
-
-pub unsafe extern "C" fn race_manager_get_player_horse_index_hook(
-    this: *mut RawIl2CppObject,
-    method: *const RawMethodInfo,
-) -> i32 {
-    let orig = ORIG_RACE_MANAGER_GET_PLAYER_HORSE_INDEX;
-    let result = if orig != 0 {
-        let orig_fn: RaceManagerIntHookFn = transmute(orig);
-        orig_fn(this, method)
-    } else {
-        0
-    };
-
-    let get_race_info = RACE_MANAGER_GET_RACE_INFO_ADDR;
-    if get_race_info == 0 || this.is_null() {
-        return result;
-    }
-
-    let get_race_info_fn: RaceManagerRaceInfoFn = transmute(get_race_info);
-    let race_info = get_race_info_fn(
-        this,
-        RACE_MANAGER_GET_RACE_INFO_METHOD as *const RawMethodInfo,
-    );
-    if race_info.is_null() {
-        let count = NULL_RACE_MANAGER_RACEINFO_LOG_COUNT.fetch_add(1, Ordering::Relaxed);
-        if count < 100 {
-            log!(
-                "[RaceManager] GetPlayerHorseIndex fired but get_RaceInfo returned null; this={:p}",
-                this
-            );
-        }
-        return result;
-    }
-
-    inspect_race_info_candidate(race_info, "RaceManager.GetPlayerHorseIndex/get_RaceInfo", 0);
-    result
 }
 
 pub unsafe extern "C" fn team_stadium_result_hook(

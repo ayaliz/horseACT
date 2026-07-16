@@ -83,12 +83,12 @@ pub fn save_race_info(mut race_info: Value) {
     }
 
     let race_type = race_info.get("raceType").and_then(|v| v.as_str());
-    let folder = match race_type {
-        Some("RoomMatch") => "Room match",
-        Some("Champions") => "Champions meeting",
-        Some("Single") => "Career",
-        Some("Practice") => "Practice room",
-        _ => "Other",
+    let folder = match race_folder(race_type) {
+        Some(folder) => folder,
+        None => {
+            log!("[RaceInfo] Skipped TeamStadium RaceInfo; Team Trials use the result hook.");
+            return;
+        }
     };
     log!(
         "[RaceInfo] RaceType={:?}, selected_folder={}",
@@ -142,6 +142,17 @@ fn value_kind(value: &Value) -> &'static str {
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::Object(_) => "object",
+    }
+}
+
+fn race_folder(race_type: Option<&str>) -> Option<&'static str> {
+    match race_type {
+        Some("RoomMatch") => Some("Room match"),
+        Some("Champions") => Some("Champions meeting"),
+        Some("Single") => Some("Career"),
+        Some("Practice") => Some("Practice room"),
+        Some("TeamStadium") => None,
+        _ => Some("Other"),
     }
 }
 
@@ -233,7 +244,7 @@ pub fn save_team_trial_result(mut response: Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_field_name, normalize_field_names};
+    use super::{normalize_field_name, normalize_field_names, race_folder};
     use serde_json::json;
 
     #[test]
@@ -268,6 +279,12 @@ mod tests {
         assert_eq!(value["raceHorse"][0]["charaName"], "Seiun Sky");
         assert_eq!(value["raceHorse"][0]["finishOrder"], 0);
         assert_eq!(value["privateValue"], true);
+    }
+
+    #[test]
+    fn routes_career_and_team_stadium_races_through_their_expected_paths() {
+        assert_eq!(race_folder(Some("Single")), Some("Career"));
+        assert_eq!(race_folder(Some("TeamStadium")), None);
     }
 }
 

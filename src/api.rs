@@ -1,12 +1,12 @@
-use std::io::Write;
-use std::sync::OnceLock;
+use crate::config::{api_key, server_url, EndpointConfig};
+use crate::log;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
 use serde_json::{Map, Value};
-use crate::config::{api_key, server_url, EndpointConfig};
-use crate::log;
+use sha2::Sha256;
+use std::io::Write;
+use std::sync::OnceLock;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -30,7 +30,8 @@ pub fn fetch_endpoint_config() -> Result<Vec<EndpointConfig>, String> {
         .set("X-API-Key", api_key())
         .call()
         .map_err(|e| format!("Request failed: {}", e))?;
-    let body = resp.into_string()
+    let body = resp
+        .into_string()
         .map_err(|e| format!("Failed to read response: {}", e))?;
     let configs = serde_json::from_str::<Vec<EndpointConfig>>(&body)
         .map_err(|e| format!("Failed to parse response: {}", e))?;
@@ -71,11 +72,15 @@ const HMAC_KEY: [u8; 32] = decode_key(HMAC_KEY_HEX);
 pub fn dispatch(endpoint: &str, data: Value) {
     let sv = server_url();
     if sv.is_empty() {
-        log!("[API] Dispatch skipped for {}: no server URL configured", endpoint);
+        log!(
+            "[API] Dispatch skipped for {}: no server URL configured",
+            endpoint
+        );
         return;
     }
 
-    let fields: Vec<String> = endpoint_configs().iter()
+    let fields: Vec<String> = endpoint_configs()
+        .iter()
         .find(|e| e.name == endpoint)
         .map(|e| e.fields.clone())
         .unwrap_or_default();
@@ -103,7 +108,9 @@ fn extract_fields(data: &Value, fields: &[String]) -> Value {
 }
 
 fn apply_field_spec(src: &Value, dst: &mut Map<String, Value>, path: &[&str]) {
-    if path.is_empty() { return; }
+    if path.is_empty() {
+        return;
+    }
     let key = path[0];
     let rest = &path[1..];
     let child = match src.get(key) {
@@ -116,11 +123,14 @@ fn apply_field_spec(src: &Value, dst: &mut Map<String, Value>, path: &[&str]) {
     }
     match child {
         Value::Array(arr) => {
-            let items: Vec<Value> = arr.iter().map(|elem| {
-                let mut inner = Map::new();
-                apply_field_spec(elem, &mut inner, rest);
-                Value::Object(inner)
-            }).collect();
+            let items: Vec<Value> = arr
+                .iter()
+                .map(|elem| {
+                    let mut inner = Map::new();
+                    apply_field_spec(elem, &mut inner, rest);
+                    Value::Object(inner)
+                })
+                .collect();
             if let Some(Value::Array(existing)) = dst.get_mut(key) {
                 for (ex, new) in existing.iter_mut().zip(items.into_iter()) {
                     if let (Value::Object(ex_map), Value::Object(new_map)) = (ex, new) {
@@ -166,7 +176,11 @@ fn send(server_url: &str, api_key: &str, endpoint: &str, data: &Value) {
     let compressed = match encoder.finish() {
         Ok(c) => c,
         Err(e) => {
-            log!("[API] Failed to finalize compression for {}: {}", endpoint, e);
+            log!(
+                "[API] Failed to finalize compression for {}: {}",
+                endpoint,
+                e
+            );
             return;
         }
     };
