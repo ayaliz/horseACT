@@ -11,8 +11,9 @@ mod reflection;
 use crate::config::init_paths;
 use crate::hooks::{
     cache_race_info_sim_data_offset, race_initializer_create_race_info_hook,
-    team_stadium_result_hook, veteran_hook, API_HOOK_FNS, API_HOOK_ORIGS, MAX_API_HOOKS,
-    ORIG_RACE_INITIALIZER_CREATE_RACE_INFO, ORIG_TEAM_STADIUM_RESULT, ORIG_VETERAN_APPLY,
+    race_util_set_trained_chara_data_hook, team_stadium_result_hook, veteran_hook, API_HOOK_FNS,
+    API_HOOK_ORIGS, MAX_API_HOOKS, ORIG_RACE_INITIALIZER_CREATE_RACE_INFO,
+    ORIG_RACE_UTIL_SET_TRAINED_CHARA_DATA, ORIG_TEAM_STADIUM_RESULT, ORIG_VETERAN_APPLY,
     RACE_MANAGER_GET_RACE_INFO_ADDR, RACE_MANAGER_GET_RACE_INFO_METHOD,
 };
 use crate::il2cpp::{
@@ -108,6 +109,14 @@ unsafe fn install_hooks() {
         log!("[RaceInitializer] Failed to find Gallop.RaceInitializer class");
     }
 
+    let race_util_class =
+        get_class_from_image(target_image, c"Gallop".as_ptr(), c"RaceUtil".as_ptr());
+    if !race_util_class.is_null() {
+        install_race_util_set_trained_chara_data_hook(race_util_class);
+    } else {
+        log!("[RaceInfoEnrichment] Failed to find Gallop.RaceUtil class");
+    }
+
     let results =
         find_methods_in_assembly_by_param(target_image as *mut RawIl2CppImage, "TrainedChara[]");
     if results.is_empty() {
@@ -181,6 +190,23 @@ unsafe fn install_hooks() {
                 log!("TeamTrials candidate method pointer is null");
             }
         }
+    }
+}
+
+unsafe fn install_race_util_set_trained_chara_data_hook(
+    race_util_class: *mut crate::il2cpp::RawIl2CppClass,
+) {
+    let fn_ptr = find_method_addr_by_name(race_util_class, c"SetTrainedCharaData".as_ptr(), 1);
+    if fn_ptr == 0 {
+        log!("[RaceInfoEnrichment] RaceUtil.SetTrainedCharaData not found.");
+        return;
+    }
+
+    if let Some(orig) = hook(fn_ptr, race_util_set_trained_chara_data_hook as usize) {
+        ORIG_RACE_UTIL_SET_TRAINED_CHARA_DATA = orig;
+        log!("[RaceInfoEnrichment] Hook installed on RaceUtil.SetTrainedCharaData.");
+    } else {
+        log!("[RaceInfoEnrichment] Failed to install RaceUtil.SetTrainedCharaData hook.");
     }
 }
 
