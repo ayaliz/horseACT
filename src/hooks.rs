@@ -16,6 +16,7 @@ pub static mut ORIG_VETERAN_APPLY: usize = 0;
 pub static mut ORIG_TEAM_STADIUM_RESULT: usize = 0;
 pub static mut ORIG_RACE_INITIALIZER_CREATE_RACE_INFO: usize = 0;
 pub static mut ORIG_RACE_UTIL_SET_TRAINED_CHARA_DATA: usize = 0;
+pub static mut ORIG_CHAMPIONS_START_RACE: usize = 0;
 pub static mut RACE_MANAGER_GET_RACE_INFO_ADDR: usize = 0;
 pub static mut RACE_MANAGER_GET_RACE_INFO_METHOD: usize = 0;
 
@@ -103,13 +104,60 @@ pub unsafe extern "C" fn race_util_set_trained_chara_data_hook(
     trained_chara_array: *mut RawIl2CppObject,
     method: *const RawMethodInfo,
 ) {
-    cache_trained_chara_array(trained_chara_array);
+    cache_trained_chara_array(trained_chara_array, "RaceUtil.SetTrainedCharaData");
 
     if ORIG_RACE_UTIL_SET_TRAINED_CHARA_DATA != 0 {
         let orig: StaticObjectArgHookFn = transmute(ORIG_RACE_UTIL_SET_TRAINED_CHARA_DATA);
         orig(trained_chara_array, method);
     }
 
+    refresh_pending_race_info("RaceUtil.SetTrainedCharaData");
+}
+
+type ChampionsStartRaceFn = unsafe extern "C" fn(
+    race_num: i32,
+    room_info: *mut RawIl2CppObject,
+    room_user_array: *mut RawIl2CppObject,
+    race_horse_data_array: *mut RawIl2CppObject,
+    trained_chara_array: *mut RawIl2CppObject,
+    state: i32,
+    replay: bool,
+    method: *const RawMethodInfo,
+);
+
+pub unsafe extern "C" fn champions_start_race_hook(
+    race_num: i32,
+    room_info: *mut RawIl2CppObject,
+    room_user_array: *mut RawIl2CppObject,
+    race_horse_data_array: *mut RawIl2CppObject,
+    trained_chara_array: *mut RawIl2CppObject,
+    state: i32,
+    replay: bool,
+    method: *const RawMethodInfo,
+) {
+    cache_trained_chara_array(
+        trained_chara_array,
+        "ChampionsLobbyViewController.StartRace",
+    );
+
+    if ORIG_CHAMPIONS_START_RACE != 0 {
+        let orig: ChampionsStartRaceFn = transmute(ORIG_CHAMPIONS_START_RACE);
+        orig(
+            race_num,
+            room_info,
+            room_user_array,
+            race_horse_data_array,
+            trained_chara_array,
+            state,
+            replay,
+            method,
+        );
+    }
+
+    refresh_pending_race_info("ChampionsLobbyViewController.StartRace");
+}
+
+unsafe fn refresh_pending_race_info(source: &str) {
     let pending = PENDING_TRAINED_CHARA_RACE_PTR.swap(0, Ordering::SeqCst);
     if pending == 0 {
         return;
@@ -118,7 +166,8 @@ pub unsafe extern "C" fn race_util_set_trained_chara_data_hook(
     let race_info = get_current_race_info();
     if race_info as usize != pending {
         log!(
-            "[RaceInfoEnrichment] SetTrainedCharaData arrived, but current RaceInfo {:p} did not match pending RaceInfo {:#x}.",
+            "[RaceInfoEnrichment] {} arrived, but current RaceInfo {:p} did not match pending RaceInfo {:#x}.",
+            source,
             race_info,
             pending
         );
@@ -126,21 +175,16 @@ pub unsafe extern "C" fn race_util_set_trained_chara_data_hook(
     }
 
     log!(
-        "[RaceInfoEnrichment] SetTrainedCharaData applied; refreshing pending RaceInfo {:p}.",
+        "[RaceInfoEnrichment] {} applied; refreshing pending RaceInfo {:p}.",
+        source,
         race_info
     );
-    inspect_race_info_candidate(
-        race_info,
-        "RaceUtil.SetTrainedCharaData",
-        0,
-        std::ptr::null_mut(),
-        true,
-    );
+    inspect_race_info_candidate(race_info, source, 0, std::ptr::null_mut(), true);
 }
 
-unsafe fn cache_trained_chara_array(trained_chara_array: *mut RawIl2CppObject) {
+unsafe fn cache_trained_chara_array(trained_chara_array: *mut RawIl2CppObject, source: &str) {
     if trained_chara_array.is_null() {
-        log!("[RaceInfoEnrichment] RaceUtil.SetTrainedCharaData received a null array.");
+        log!("[RaceInfoEnrichment] {} received a null array.", source);
         return;
     }
 
@@ -160,7 +204,8 @@ unsafe fn cache_trained_chara_array(trained_chara_array: *mut RawIl2CppObject) {
         };
         let viewer_id = read_i64_field(trained_chara, "viewer_id").unwrap_or(0);
         let mut visited = HashSet::new();
-        let value = convert_object_to_value(trained_chara, 0, &mut visited, &sensitive_fields);
+        let mut value = convert_object_to_value(trained_chara, 0, &mut visited, &sensitive_fields);
+        normalize_cached_trained_chara_value(&mut value, true);
         entries.push(CachedTrainedChara {
             viewer_id,
             trained_chara_id,
@@ -193,9 +238,10 @@ unsafe fn cache_trained_chara_array(trained_chara_array: *mut RawIl2CppObject) {
                 entries: merged,
             });
             log!(
-                "[RaceInfoEnrichment] Captured {}/{} entries from RaceUtil.SetTrainedCharaData; cache now has {} entries.",
+                "[RaceInfoEnrichment] Captured {}/{} entries from {}; cache now has {} entries.",
                 captured,
                 len,
+                source,
                 total
             );
         }
@@ -203,6 +249,63 @@ unsafe fn cache_trained_chara_array(trained_chara_array: *mut RawIl2CppObject) {
             log!("[RaceInfoEnrichment] Trained-character cache lock was poisoned.");
         }
     }
+}
+
+fn normalize_cached_trained_chara_value(value: &mut Value, is_root: bool) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                normalize_cached_trained_chara_value(item, false);
+            }
+        }
+        Value::Object(map) => {
+            let old = std::mem::take(map);
+            for (key, mut child) in old {
+                normalize_cached_trained_chara_value(&mut child, false);
+                map.insert(cached_trained_chara_key(&key, is_root), child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn cached_trained_chara_key(name: &str, is_root: bool) -> String {
+    if is_root {
+        let compatibility_name = match name {
+            "trained_chara_id" => Some("id"),
+            "skill_array" => Some("acquiredSkillArray"),
+            "support_card_list" => Some("supportCardArray"),
+            "race_result_list" => Some("singleModeRaceResultArray"),
+            "succession_chara_array" => Some("successionCharaList"),
+            "succession_num" => Some("successionCount"),
+            "is_locked" => Some("isLock"),
+            "wins" => Some("singleWinNum"),
+            "nickname_id" => Some("nickNameId"),
+            "nickname_id_array" => Some("nickNameIdArray"),
+            _ => None,
+        };
+        if let Some(name) = compatibility_name {
+            return name.to_string();
+        }
+    }
+
+    if name == "factor_info_array" {
+        return "factorDataArray".to_string();
+    }
+
+    let mut result = String::with_capacity(name.len());
+    let mut uppercase_next = false;
+    for ch in name.chars() {
+        if ch == '_' {
+            uppercase_next = true;
+        } else if uppercase_next {
+            result.extend(ch.to_uppercase());
+            uppercase_next = false;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 fn cached_trained_chara(viewer_id: i64, trained_chara_id: i32) -> Option<Value> {
@@ -290,6 +393,59 @@ fn remove_json_field(value: &mut Value, field_name: &str) {
         }
         _ => {}
     }
+}
+
+fn propagate_trained_chara_data_by_horse_index(
+    value: &mut Value,
+    trained_by_horse_index: &[Option<Value>],
+) -> usize {
+    fn visit(value: &mut Value, trained_by_horse_index: &[Option<Value>], propagated: &mut usize) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    visit(item, trained_by_horse_index, propagated);
+                }
+            }
+            Value::Object(map) => {
+                let horse_index = map
+                    .get("<HorseIndex>k__BackingField")
+                    .or_else(|| map.get("HorseIndex"))
+                    .or_else(|| map.get("horseIndex"))
+                    .and_then(Value::as_u64)
+                    .and_then(|index| usize::try_from(index).ok());
+
+                if let Some(index) = horse_index {
+                    let trained_key = if map.contains_key("<TrainedCharaData>k__BackingField") {
+                        Some("<TrainedCharaData>k__BackingField")
+                    } else if map.contains_key("TrainedCharaData") {
+                        Some("TrainedCharaData")
+                    } else if map.contains_key("trainedCharaData") {
+                        Some("trainedCharaData")
+                    } else {
+                        None
+                    };
+
+                    if let (Some(key), Some(Some(trained))) =
+                        (trained_key, trained_by_horse_index.get(index))
+                    {
+                        if map.get(key).is_some_and(Value::is_null) {
+                            map.insert(key.to_string(), trained.clone());
+                            *propagated += 1;
+                        }
+                    }
+                }
+
+                for child in map.values_mut() {
+                    visit(child, trained_by_horse_index, propagated);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut propagated = 0;
+    visit(value, trained_by_horse_index, &mut propagated);
+    propagated
 }
 
 unsafe fn get_current_race_info() -> *mut RawIl2CppObject {
@@ -558,6 +714,21 @@ unsafe fn enrich_trained_chara_data(
         unresolved,
         accessor
     );
+
+    let trained_by_horse_index = json_horses
+        .iter()
+        .map(|horse| {
+            horse
+                .get("<TrainedCharaData>k__BackingField")
+                .filter(|trained| !trained.is_null())
+                .cloned()
+        })
+        .collect::<Vec<_>>();
+    let propagated = propagate_trained_chara_data_by_horse_index(value, &trained_by_horse_index);
+    log!(
+        "[RaceInfoEnrichment] Propagated trained-character data to {} duplicate HorseData object(s).",
+        propagated
+    );
 }
 
 pub unsafe fn log_class_fields(klass: *mut RawIl2CppClass, label: &str) {
@@ -812,4 +983,36 @@ pub unsafe extern "C" fn veteran_hook(
     }
 
     save_veteran_data(array_data);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_cached_trained_chara_value;
+    use serde_json::json;
+
+    #[test]
+    fn normalizes_cached_trained_chara_to_legacy_race_names() {
+        let mut value = json!({
+            "trained_chara_id": 42,
+            "skill_array": [{ "skill_id": 1001 }],
+            "support_card_list": [{ "support_card_id": 2001 }],
+            "factor_info_array": [{ "factor_id": 3001 }],
+            "succession_chara_array": [{
+                "position_id": 1,
+                "factor_info_array": [{ "factor_id": 4001 }]
+            }]
+        });
+
+        normalize_cached_trained_chara_value(&mut value, true);
+
+        assert_eq!(value["id"], 42);
+        assert_eq!(value["acquiredSkillArray"][0]["skillId"], 1001);
+        assert_eq!(value["supportCardArray"][0]["supportCardId"], 2001);
+        assert_eq!(value["factorDataArray"][0]["factorId"], 3001);
+        assert_eq!(value["successionCharaList"][0]["positionId"], 1);
+        assert_eq!(
+            value["successionCharaList"][0]["factorDataArray"][0]["factorId"],
+            4001
+        );
+    }
 }

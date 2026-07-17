@@ -10,9 +10,10 @@ mod reflection;
 
 use crate::config::init_paths;
 use crate::hooks::{
-    cache_race_info_sim_data_offset, race_initializer_create_race_info_hook,
-    race_util_set_trained_chara_data_hook, team_stadium_result_hook, veteran_hook, API_HOOK_FNS,
-    API_HOOK_ORIGS, MAX_API_HOOKS, ORIG_RACE_INITIALIZER_CREATE_RACE_INFO,
+    cache_race_info_sim_data_offset, champions_start_race_hook,
+    race_initializer_create_race_info_hook, race_util_set_trained_chara_data_hook,
+    team_stadium_result_hook, veteran_hook, API_HOOK_FNS, API_HOOK_ORIGS, MAX_API_HOOKS,
+    ORIG_CHAMPIONS_START_RACE, ORIG_RACE_INITIALIZER_CREATE_RACE_INFO,
     ORIG_RACE_UTIL_SET_TRAINED_CHARA_DATA, ORIG_TEAM_STADIUM_RESULT, ORIG_VETERAN_APPLY,
     RACE_MANAGER_GET_RACE_INFO_ADDR, RACE_MANAGER_GET_RACE_INFO_METHOD,
 };
@@ -122,6 +123,16 @@ unsafe fn install_hooks() {
     if results.is_empty() {
         log!("WARNING: No methods found for Veteran Characters");
     } else {
+        if let Some(champions_start_race) = results.iter().find(|r| {
+            r.class_name == "ChampionsLobbyViewController" && r.method_name == "StartRace"
+        }) {
+            install_champions_start_race_hook(champions_start_race.method);
+        } else {
+            log!(
+                "[RaceInfoEnrichment] Scanner did not find ChampionsLobbyViewController.StartRace."
+            );
+        }
+
         let best_candidate = results
             .iter()
             .find(|r| {
@@ -190,6 +201,21 @@ unsafe fn install_hooks() {
                 log!("TeamTrials candidate method pointer is null");
             }
         }
+    }
+}
+
+unsafe fn install_champions_start_race_hook(method: *mut crate::il2cpp::RawMethodInfo) {
+    let fn_ptr = method_addr(method);
+    if fn_ptr == 0 {
+        log!("[RaceInfoEnrichment] ChampionsLobbyViewController.StartRace address is null.");
+        return;
+    }
+
+    if let Some(orig) = hook(fn_ptr, champions_start_race_hook as usize) {
+        ORIG_CHAMPIONS_START_RACE = orig;
+        log!("[RaceInfoEnrichment] Hook installed on ChampionsLobbyViewController.StartRace.");
+    } else {
+        log!("[RaceInfoEnrichment] Failed to install ChampionsLobbyViewController.StartRace hook.");
     }
 }
 
